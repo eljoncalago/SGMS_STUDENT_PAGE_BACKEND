@@ -24,7 +24,7 @@
  *    contributes 0 to the total), so hiding it is purely cosmetic
  *    and 100% safe.
  *
- * 3. CUMULATIVE STAGE PASSING SCORES
+ * 3. CUMULATIVE STAGE PASSING SCORES (shown as a 3rd column in Grades)
  *    Mirrors the exact "Semester Grade Summary Table" logic used by
  *    the admin PrintService (see sgms_backend/PrintService.gs):
  *
@@ -43,6 +43,12 @@
  *    Exam, Final Collective Initial, Final Collective Final, Final
  *    Exam) by name, exactly like PrintService.findTerm() — so this
  *    keeps working even if TERM_IDs differ between deployments.
+ *
+ *    Rather than a separate "stages" section, each stage's cumulative
+ *    total is attached directly to the term row that completes it
+ *    (`termGrades[i].cumulativeStage`) — e.g. the Midterm Exam row
+ *    carries Stage 1's cumulative total. The frontend renders this as
+ *    a third badge next to that term's Weight/Score badges.
  *
  * 4. PASS/FAIL "CONTACT YOUR TEACHER" GUIDANCE
  *    The API doesn't hardcode UI copy, but every grade/stage now
@@ -378,6 +384,24 @@ function handleGetStudentByToken(payload) {
       return !hiddenTermIds[tg.termId];
     });
 
+    // Attach each stage's cumulative total directly onto the term row that
+    // "completes" it (e.g. Stage 1 attaches to the Midterm Exam row) so the
+    // frontend can render it as a third column right next to that term,
+    // instead of a separate stages section.
+    cumulativeStages.forEach(function(stage) {
+      if (!stage.anchorTermId) return;
+      var anchorTerm = visibleTermGrades.find(function(tg) { return tg.termId === stage.anchorTermId; });
+      if (anchorTerm) {
+        anchorTerm.cumulativeStage = {
+          name: stage.name,
+          label: stage.label,
+          cumulativeScore: stage.cumulativeScore,
+          passingScore: stage.passingScore,
+          passed: stage.passed
+        };
+      }
+    });
+
     var visibleActivities = applicableActivities.filter(function(act) {
       return (act.IS_ACTIVE === true || act.IS_ACTIVE === 'TRUE' || act.IS_ACTIVE === 'true') &&
              !hiddenTermIds[String(act.TERM_ID || '').trim()];
@@ -467,11 +491,13 @@ function buildCumulativeStages(termRoleMap, weightedScoreByTermId, settings) {
     if (!chainIntact) return;
 
     var stageContribution = 0;
+    var anchorTermId = null;
     var rolesFound = def.roles.every(function(role) {
       var term = termRoleMap[role];
       if (!term) return false;
       var termId = String(term.TERM_ID || '').trim();
       stageContribution += weightedScoreByTermId[termId] || 0;
+      anchorTermId = termId; // last role in the list is where the stage "completes"
       return true;
     });
 
@@ -495,7 +521,8 @@ function buildCumulativeStages(termRoleMap, weightedScoreByTermId, settings) {
       label: def.label,
       cumulativeScore: cumulativeScore,
       passingScore: passingScore,
-      passed: cumulativeScore >= passingScore
+      passed: cumulativeScore >= passingScore,
+      anchorTermId: anchorTermId
     });
   });
 
